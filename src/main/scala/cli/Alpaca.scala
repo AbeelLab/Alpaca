@@ -15,8 +15,7 @@ object Alpaca {
         "build-db                Kmerize binned-subregions for a subject genome and store as a database.\n" +
         "db-metrics              Obtain metrics for a given database.\n\n" +
         "TARGET COMPARISON\n" +
-        "genome-similarity       Compute similarity between a target genome and given alpaca database.\n" +
-        "wg-alignment            Perform whole genome alignment and curate alignments.\n\n" +
+        "genome-similarity       Compute similarity between a target genome and given alpaca database.\n\n." +
         "POPULATION COMPARISON\n" +
         "population-summary      Summarize a set of target genome similarities as a population.\n" +
         "population-metrics      Obtain metrics for a summarized population.\n"

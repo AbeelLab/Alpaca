@@ -26,7 +26,6 @@ object GenomeSimilarity extends AlpacaUtils {
                      prefix: String = null,
                      genomeSize: Int = -1,
                      verbose: Boolean = false,
-                     includeSoftClipping: Boolean = false,
                      minCount: Int = 2,
                      exclude: String = null,
                      outputDir: File = null)
@@ -59,9 +58,6 @@ object GenomeSimilarity extends AlpacaUtils {
         c.copy(minCount = x)
       } text ("Minimum number of times a kmer must be observed to add to local kmer set (default is 2). Overrides " +
         "default implementation of automatically calculating min count based on 0.05*(coverage).")
-      opt[Unit]("include-clipping") action { (x, c) =>
-        c.copy(includeSoftClipping = true)
-      } text ("Include soft-clipped sequence in alignments (default is false).")
       opt[String]("exclude") action { (x, c) =>
         c.copy(exclude = x)
       } text ("Exclude specific contig sequences from analysis (comma separated)")
@@ -142,10 +138,10 @@ object GenomeSimilarity extends AlpacaUtils {
         //iterate through each subregion
         kmerized_subregions.foreach(subregion => {
           //get overlapping reads for current
-          val overlapping_reads = getReadsOverlapping(config.bam, contig_name, (subregion.start, subregion.end))
+          val overlapping_reads = Option(getReadsOverlapping(config.bam, contig_name, (subregion.start, subregion.end)))
           //get kmers for given set of reads
           val sample_kmerset = kmerizer(overlapping_reads, contig_name, (subregion.start, subregion.end),
-            config.minMapq, Array[Byte](), min_count, false, config.includeSoftClipping, true)
+            config.minMapq, Array[Byte](), min_count, false, true)
           //compute intersection
           val intersect = sample_kmerset.intersect(subregion.local_kmers).size.toDouble
           //compute union

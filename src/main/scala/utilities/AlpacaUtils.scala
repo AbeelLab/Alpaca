@@ -120,21 +120,19 @@ trait AlpacaUtils extends HashingUtils {
     * Method to create a kmer set for some given subregion. Will use kmers derived from the assembly and from reads
     * aligned to it.
     *
-    * @param reads               SAMRecordIterator
+    * @param _reads               SAMRecordIterator
     * @param min_mapq            Minimum required mapping quality for an alignment
     * @param sequence            Sequence from assembly
     * @param trust_assembly      Trust sequence from assembly and therefore do not require minimum kmer count
-    * @param includeSoftClipping Include kmers from soft-clipped sequence in alignments
     * @return HashSet[String]
     */
-  def kmerizeSubregion(kmer_size: Int)(reads: SAMRecordIterator,
+  def kmerizeSubregion(kmer_size: Int)(_reads: Option[SAMRecordIterator],
                                        contig: String,
                                        subregion: (Int, Int),
                                        min_mapq: Int,
                                        sequence: Array[Byte],
                                        min_count: Int,
                                        trust_assembly: Boolean,
-                                       includeSoftClipping: Boolean,
                                        bam_only: Boolean): Set[Long] = {
 
     //mutable hashset for final set of kmers
@@ -150,7 +148,7 @@ trait AlpacaUtils extends HashingUtils {
       val smallest_kmer = List(kmer, kmer.reverse.map(reverseComplement(_))).sortBy(_.map(decode(_)).toString).head
       //get kmer hash value from smallest kmer
       val kmer_hash = getKmerByteHash(smallest_kmer)
-      //if kmer is to be trusted, automatically add to hashset and add counter
+      //if kmer is to be trusted, automatically add to hashset and set to min kmer count
       if (trust_kmer) kmer_hashmap.update(kmer_hash, min_count)
       //require kmer to be observe at least a minimum number of times
       else {
@@ -161,83 +159,89 @@ trait AlpacaUtils extends HashingUtils {
         //kmer meets minimum threshold, leave as it is
       }
     }
-    //kmerize subregion from assembly
+    //user did not specify bam-only parameter, kmerize assembly
     if (!bam_only) {
       sequence.sliding(kmer_size).foreach(kmer => if (kmer.size == kmer_size) addKmer2Set(kmer, trust_assembly))
     }
     //iterate through all reads aligned in the subregion and kmerize
-    while (reads.hasNext) {
-      //get current read
-      val current_read = reads.next()
-      //only proceed if current had has minimum mapping quality
-      if (current_read.getMappingQuality >= min_mapq) {
-        //sanity assert statement that reads overlaps with current subregion
-        assert(isOverlap(subregion, (current_read.getAlignmentStart, current_read.getAlignmentEnd)), timeStamp +
-          "Current read " + (current_read.getAlignmentStart, current_read.getAlignmentEnd) + " unexpectedly does " +
-          "not overlap with current subregion " + subregion + ".")
-        //get cigar of read
-        val read_cigar = current_read.getCigar
-        //kmerize read only if there is sufficient sequence after considering subregion boundary
-        if (current_read.getAlignmentEnd - subregion._1 >= kmer_size &&
-          subregion._2 - current_read.getAlignmentStart >= kmer_size) {
-          //get potential start offset from reads overlapping boundaries
-          val start_index = {
-            if (current_read.getAlignmentStart >= subregion._1)
-              current_read.getReadPositionAtReferencePosition(current_read.getAlignmentStart, true)
-            else current_read.getReadPositionAtReferencePosition(subregion._1, true)
-          }
-          //get potential ending offset from reads overlapping boundaries
-          val end_index = {
-            if (current_read.getAlignmentEnd <= subregion._2)
-              current_read.getReadPositionAtReferencePosition(current_read.getAlignmentEnd, true)
-            else current_read.getReadPositionAtReferencePosition(subregion._2, true)
-          }
-          //get true aligned sequence accounting for read clipping at the ends
-          val aligned_seq = {
-            //if not allowing clipped sequence or if it is not clipped, simply return entire read sequence
-            if (!includeSoftClipping || !read_cigar.isClipped) {
-              /**
-              try {
+    if(_reads.nonEmpty) {
+      //get overlapping reads
+      val reads = _reads.get
+      //iterate through every read and add corresponding kmers to set
+      while (reads.hasNext) {
+        //get current read
+        val current_read = reads.next()
+        //only proceed if current had has minimum mapping quality
+        if (current_read.getMappingQuality >= min_mapq) {
+          //sanity assert statement that reads overlaps with current subregion
+          assert(isOverlap(subregion, (current_read.getAlignmentStart, current_read.getAlignmentEnd)), timeStamp +
+            "Current read " + (current_read.getAlignmentStart, current_read.getAlignmentEnd) + " unexpectedly does " +
+            "not overlap with current subregion " + subregion + ".")
+          //get cigar of read
+          val read_cigar = current_read.getCigar
+          //kmerize read only if there is sufficient sequence after considering subregion boundary
+          if (current_read.getAlignmentEnd - subregion._1 >= kmer_size &&
+            subregion._2 - current_read.getAlignmentStart >= kmer_size) {
+            //get potential start offset from reads overlapping boundaries
+            val start_index = {
+              if (current_read.getAlignmentStart >= subregion._1)
+                current_read.getReadPositionAtReferencePosition(current_read.getAlignmentStart, true)
+              else current_read.getReadPositionAtReferencePosition(subregion._1, true)
+            }
+            //get potential ending offset from reads overlapping boundaries
+            val end_index = {
+              if (current_read.getAlignmentEnd <= subregion._2)
+                current_read.getReadPositionAtReferencePosition(current_read.getAlignmentEnd, true)
+              else current_read.getReadPositionAtReferencePosition(subregion._2, true)
+            }
+            //get true aligned sequence accounting for read clipping at the ends
+            val aligned_seq = {
+              //if it is not clipped, simply return entire read sequence
+              if (!read_cigar.isClipped) {
+                /**
+                  * try {
+                  * current_read.getReadString.substring(start_index - 1, end_index)
+                  * }
+                  * catch {
+                  * case e: java.lang.StringIndexOutOfBoundsException =>
+                  * println(current_read.getReferenceName, current_read.getAlignmentStart, current_read.getAlignmentEnd,
+                  * current_read.getCigar, current_read.getReadLength, start_index - 1, end_index)
+                  * }
+                  */
                 current_read.getReadString.substring(start_index - 1, end_index)
               }
-              catch {
-                case e: java.lang.StringIndexOutOfBoundsException =>
-                  println(current_read.getReferenceName, current_read.getAlignmentStart, current_read.getAlignmentEnd,
-                    current_read.getCigar, current_read.getReadLength, start_index - 1, end_index)
-              }
-                */
-              current_read.getReadString.substring(start_index - 1, end_index)
-            }
-            else {
-              //compute starting offset
-              val start_offset = {
-                //if first cigar entry is not clipped return 0
-                if (!read_cigar.getFirstCigarElement.getOperator.isClipping) 0
-                else getOffset(read_cigar.getFirstCigarElement.toString)
-              }
-              //compute ending offset
-              val end_offset = {
-                //if last cigar entry is not clipped return size of read sequence
-                if (!read_cigar.getLastCigarElement.getOperator.isClipping) 0
-                else getOffset(read_cigar.getLastCigarElement.toString)
-              }
-              /**
-              try {
-                //return true aligned sequence
+              else {
+                //compute starting offset
+                val start_offset = {
+                  //if first cigar entry is not clipped return 0
+                  if (!read_cigar.getFirstCigarElement.getOperator.isClipping) 0
+                  else getOffset(read_cigar.getFirstCigarElement.toString)
+                }
+                //compute ending offset
+                val end_offset = {
+                  //if last cigar entry is not clipped return size of read sequence
+                  if (!read_cigar.getLastCigarElement.getOperator.isClipping) 0
+                  else getOffset(read_cigar.getLastCigarElement.toString)
+                }
+
+                /**
+                  * try {
+                  * //return true aligned sequence
+                  * current_read.getReadString.substring(start_index - start_offset - 1, end_index + end_offset)
+                  * } catch {
+                  * case e: java.lang.StringIndexOutOfBoundsException =>
+                  * println(current_read.getReferenceName, current_read.getAlignmentStart, current_read.getAlignmentEnd,
+                  * current_read.getCigar, current_read.getReadLength, start_index, end_index, start_offset, end_offset,
+                  * start_index - start_offset - 1, end_index + end_offset)
+                  * }
+                  */
                 current_read.getReadString.substring(start_index - start_offset - 1, end_index + end_offset)
-              } catch {
-                case e: java.lang.StringIndexOutOfBoundsException =>
-                  println(current_read.getReferenceName, current_read.getAlignmentStart, current_read.getAlignmentEnd,
-                    current_read.getCigar, current_read.getReadLength, start_index, end_index, start_offset, end_offset,
-                    start_index - start_offset - 1, end_index + end_offset)
               }
-                */
-              current_read.getReadString.substring(start_index - start_offset - 1, end_index + end_offset)
             }
+            //kmerize aligned read sequence and add to hashset only if the kmer is of the specified size
+            aligned_seq.toCharArray.map(encode(_)).sliding(kmer_size)
+              .foreach(kmer => if (kmer.size == kmer_size) addKmer2Set(kmer, false))
           }
-          //kmerize aligned read sequence and add to hashset only if the kmer is of the specified size
-          aligned_seq.toCharArray.map(encode(_)).sliding(kmer_size)
-            .foreach(kmer => if (kmer.size == kmer_size) addKmer2Set(kmer, false))
         }
       }
     }
