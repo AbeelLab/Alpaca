@@ -83,7 +83,7 @@ object GenomeSimilarity extends AlpacaUtils {
   }
 
   //create case class for data serialization
-  case class AlpacaEntry(ref_name: String, bam_index: Int, start: Int, end: Int, local_kmers: Set[Long])
+  case class AlpacaEntry(ref_name: String, bam_index: Int, start: Int, end: Int, local_kmers: Set[Int])
 
   //create schema for data serialization
   val schema = AvroSchema[AlpacaEntry]
@@ -114,7 +114,7 @@ object GenomeSimilarity extends AlpacaUtils {
       }
     }
     println(timeStamp + "Using minimum kmer count of " + min_count)
-    println(timeStamp + "Found " + alpaca_files.size + " kmerized contig sequences")
+    println(timeStamp + "Found " + alpaca_files.size + " kmerized contig sequences in the database")
     //curried kmerizer method
     val kmerizer = kmerizeSubregion(config.kmerSize) _
     //make output file

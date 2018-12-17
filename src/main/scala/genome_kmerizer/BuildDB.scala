@@ -11,13 +11,13 @@ package genome_kmerizer
 import java.io._
 
 import atk.FastaIterator
-import utilities.FileHandling.{timeStamp, verifyDirectory, verifyFile}
+import utilities.FileHandling.{timeStamp, verifyDirectory, verifyFile, openFileWithIterator}
 import utilities.AlpacaUtils
 import com.sksamuel.avro4s.AvroSchema
 import com.sksamuel.avro4s.AvroOutputStream
 
 import scala.collection.parallel.immutable.ParVector
-object BuilDB extends AlpacaUtils {
+object BuildDB extends AlpacaUtils {
 
   case class Config(
                      genome: File = null,
@@ -31,7 +31,7 @@ object BuilDB extends AlpacaUtils {
                      bamOnly: Boolean = false,
                      trustAssembly: Boolean = false,
                      prefix: String = null,
-                     exclude: String = null,
+                     exclude: File = null,
                      outputDir: File = null)
 
   def main(args: Array[String]) {
@@ -52,7 +52,7 @@ object BuilDB extends AlpacaUtils {
       opt[Int]("kmer-size") action { (x, c) =>
         c.copy(kmerSize = x)
       } text ("Size of kmers (default is 21).")
-      opt[String]("exclude") action { (x, c) =>
+      opt[File]("exclude") action { (x, c) =>
         c.copy(exclude = x)
       } text ("Text file containing names of contig/scaffolds to exclude from database, one per line.")
       opt[Unit]("verbose") action { (x, c) =>
@@ -92,7 +92,7 @@ object BuilDB extends AlpacaUtils {
   }
 
   //create case class for data serialization
-  case class AlpacaEntry(ref_name: String, bam_index: Int, start: Int, end: Int, local_kmers: Set[Long])
+  case class AlpacaEntry(ref_name: String, bam_index: Int, start: Int, end: Int, local_kmers: Set[Int])
 
   //create schema for data serialization
   val schema = AvroSchema[AlpacaEntry]
@@ -109,11 +109,11 @@ object BuilDB extends AlpacaUtils {
     assume(!alpaca_directory.exists(), "Alpaca DB destination already exists: " + config.outputDir + "/" + config.prefix)
     alpaca_directory.mkdir()
     //get all exclude contigs, if provided
-    val exclude = if (config.exclude == null) List[(String)]() else config.exclude.split(",").toList
+    val exclude = if (config.exclude == null) Set[(String)]() else openFileWithIterator(config.exclude).toSet
     if (config.exclude != null) println(timeStamp + "Excluding the following sequences: " + exclude.mkString(","))
     //load all contigs/scaffolds as array vectors
-    val all_contigs = fetchFastaEntries(assembly, ParVector()).filterNot(x => exclude.contains(x._1))
-      .map(x => (x._1.split("\\s+").head, x._2))
+    val all_contigs = fetchFastaEntries(assembly, ParVector())
+      .map(x => (x._1.split("\\s+").head, x._2)).filterNot(x => exclude.contains(x._1))
     println(timeStamp + "Loading header indeces")
     //get bam indeces, if bam provided. if not, create a pseudo one
     val header_indeces = {

@@ -133,7 +133,7 @@ trait AlpacaUtils extends HashingUtils {
                                        sequence: Array[Byte],
                                        min_count: Int,
                                        trust_assembly: Boolean,
-                                       bam_only: Boolean): Set[Long] = {
+                                       bam_only: Boolean): Set[Int] = {
 
     //mutable hashset for final set of kmers
     var kmer_hashmap = scala.collection.mutable.HashMap[Int, Int]()
@@ -145,7 +145,7 @@ trait AlpacaUtils extends HashingUtils {
       */
     def addKmer2Set: (Array[Byte], Boolean) => Unit = (kmer, trust_kmer) => {
       //get smallest lexicographic version of the kmer based on the decoded version
-      val smallest_kmer = List(kmer, kmer.reverse.map(reverseComplement(_))).sortBy(_.map(decode(_)).toString).head
+      val smallest_kmer = List(kmer, kmer.reverse.map(reverseComplement(_))).sortBy(_.map(decode(_)).mkString("")).head
       //get kmer hash value from smallest kmer
       val kmer_hash = getKmerByteHash(smallest_kmer)
       //if kmer is to be trusted, automatically add to hashset and set to min kmer count
@@ -245,8 +245,10 @@ trait AlpacaUtils extends HashingUtils {
         }
       }
     }
-    //return hashset of region
-    kmer_hashmap.foldLeft(Set[Long]())((kset, kmer) => if (kmer._2 < min_count) kset else kset + (kmer._1))
+    //filter out kmers that do not meet minimum count and return as set
+    kmer_hashmap.toList.foldLeft(List[Int]()){ case(klist, (kmer,count)) =>
+      if(count < min_count) klist else kmer:: klist
+    }.toSet
   }
 
   def getOffset: String => Int = cigar_entry => if (!cigar_entry.contains("S")) 0 else cigar_entry.takeWhile(_.isDigit).toInt

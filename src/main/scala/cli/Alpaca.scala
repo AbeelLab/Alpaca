@@ -25,7 +25,7 @@ object Alpaca {
       println(help)
     } else {
       args(0) match {
-        case "build-db" => genome_kmerizer.BuilDB.main(args.drop(1))
+        case "build-db" => genome_kmerizer.BuildDB.main(args.drop(1))
         case "genome-similarity" => genome_comparison.GenomeSimilarity.main(args.drop(1))
         case "db-metrics" => genome_kmerizer.DBmetrics.main(args.drop(1))
         case "population-summary" => genome_comparison.PopulationSummary.main(args.drop(1))
