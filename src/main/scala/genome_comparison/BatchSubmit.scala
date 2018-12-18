@@ -2,7 +2,7 @@ package genome_comparison
 
 import java.io.{File, PrintWriter}
 
-import utilities.FileHandling.{makeSLURMheader, openFileWithIterator, timeStamp, verifyDirectory, verifyFile}
+import utilities.FileHandling.{openFileWithIterator, timeStamp, verifyDirectory, verifyFile}
 
 /**
   * Author: Alex N. Salazar
@@ -22,12 +22,9 @@ object BatchSubmit {
                      verbose: Boolean = false,
                      exclude: String = null,
                      outputDir: File = null,
-                     cpus: Int = 1,
-                     memory: Int = 10000,
                      genomeSize: Int = -1,
-                     time: Int = 1,
-                     partition: String = "general",
-                     qos: String = "short"
+                     mem: Int = -1,
+                     clusterConfig: File = null
                    )
 
   def main(args: Array[String]) {
@@ -40,14 +37,17 @@ object BatchSubmit {
       } text ("Alpaca jar path.")
       opt[File]('l', "bam-list") required() action { (x, c) =>
         c.copy(bamFiles = x)
-      } text ("List of BAM files.")
+      } text ("Tab-delimited file containing: sample ID, path of BAM file. One per line.")
       opt[Int]('g', "genome-size") required() action { (x, c) =>
         c.copy(genomeSize = x)
       } text ("Approximate genome size.")
       opt[File]('o', "output-directory") required() action { (x, c) =>
         c.copy(outputDir = x)
       } text ("Output directory")
-      note("\nOPTIONAL ALPACA\n")
+      opt[Int]("memory") required() action { (x, c) =>
+        c.copy(mem = x)
+      } text ("Memory allocation (in mb) for each job.")
+      note("\nOPTIONAL\n")
       opt[Int]("kmer-size") action { (x, c) =>
         c.copy(kmerSize = x)
       } text ("Size of kmers (default is 21).")
@@ -57,25 +57,14 @@ object BatchSubmit {
       opt[String]("exclude") action { (x, c) =>
         c.copy(exclude = x)
       } text ("Exclude specific contig sequences from analysis (comma separated)")
+
       opt[Unit]("verbose") action { (x, c) =>
         c.copy(verbose = true)
       }
-      note("\nOPTIONAL SLURM\n")
-      opt[Int]("allocated-cpus") action { (x, c) =>
-        c.copy(cpus = x)
-      } text ("Allocated CPUs for every alignment job (default is 1).")
-      opt[Int]("allocated-memory") action { (x, c) =>
-        c.copy(memory = x)
-      } text ("Allocated memory for every alignment job in Mb (default is 10000).")
-      opt[Int]("allocated-runtime") action { (x, c) =>
-        c.copy(time = x)
-      } text ("Allocated time for job in hours (default is 2).")
-      opt[String]("partition") action { (x, c) =>
-        c.copy(partition = x)
-      } text ("Desired partition for jobs to be submitted to (default is \"general\".")
-      opt[String]("qos") action { (x, c) =>
-        c.copy(qos = x)
-      } text ("Desired qos for jobs to be submitted under (default is \"short\".")
+      opt[File]("cluster-config") required() action { (x, c) =>
+        c.copy(clusterConfig = x)
+      } text ("Scheduler configuration file. Similarities can be computed in parallel via a cluster scheduler if a " +
+        "configuration file is provided with the native scheduler parameters. See README.md for format specification.")
     }
     parser.parse(args, Config()).map { config =>
       //check whether output directory exists. If not, create it.
@@ -87,11 +76,36 @@ object BatchSubmit {
   }
 
   def createBatchSubmitScript(config: Config): Unit = {
+    /**
+      * Function to create Alpaca similarity command given name of target sample, bam file, and local directory
+      * @return String
+      */
+    def createAlpacaCommand: (String, File, File) => String = (name, bam, local_directory) => {
+      Seq("java",
+        "-Xmx" + config.mem + "m",
+        "-jar", config.alpacaJar.getAbsolutePath,
+        "genome-similarity", "-a", config.alpacaDB.getAbsolutePath,
+        "-b", bam.getAbsolutePath,
+        "--prefix", name,
+        "--kmer-size", config.kmerSize,
+        "--min-mapq", config.minMapq,
+        "--genome-size", config.genomeSize,
+        "-o", local_directory.getAbsolutePath)
+        .mkString(" ")
+    }
     //open list of bam files
     val bam_list = openFileWithIterator(config.bamFiles).toList.map(_.split("\t")).map(x => (x(0), new File(x(1))))
     println(timeStamp + "Found " + bam_list.size + " samples")
     //assure file paths are valid
     bam_list.foreach(sample => verifyFile(sample._2))
+    //open configuration file, if provided. If not, return empty list
+    val cluster_config = {
+      if(config.clusterConfig == null) List("$COMMAND")
+      else {
+        assert(config.mem != -1, "Cluster configuration file provided. Must specify memory allocation per job.")
+        openFileWithIterator(config.clusterConfig).toList
+      }
+    }
     //iterate through bam list
     bam_list.foreach(bam => {
       println(timeStamp + "--Processing " + bam._1)
@@ -100,13 +114,18 @@ object BatchSubmit {
       local_directory.mkdir()
       //create submit script
       val submit_script = new PrintWriter(local_directory + "/runAlpaca.sh")
-      //make slurm header
-      submit_script.println(makeSLURMheader(config.memory, config.time, config.partition, config.qos,
-        local_directory.getAbsolutePath + "/" + bam._1 + ".out", config.cpus))
-      submit_script.println(Seq("srun","java", "-Xmx" + config.memory + "m", "-jar", config.alpacaJar.getAbsolutePath,
-        "genome-similarity", "-a", config.alpacaDB.getAbsolutePath, "-b", bam._2.getAbsolutePath,
-        "--prefix", bam._1, "--kmer-size", config.kmerSize, "--min-mapq", config.minMapq, "--genome-size", config.genomeSize,
-        "-o", local_directory.getAbsolutePath).mkString(" "))
+      //create alpaca command
+      val command = createAlpacaCommand(bam._1, bam._2, local_directory)
+      //output mash command to local script
+      cluster_config.foreach(line => {
+        //for each line, perform the following
+        submit_script.println(
+          //add file path to stdout file
+          line.replaceAll("\\$STDOUT", local_directory.getAbsolutePath + "/" + bam._1 + ".out")
+            //add mash command
+            .replaceAll("\\$COMMAND", command)
+        )
+      })
       submit_script.close
     })
     println(timeStamp + "Successfully completed!")

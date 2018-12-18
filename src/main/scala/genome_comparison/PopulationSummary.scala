@@ -34,12 +34,12 @@ object PopulationSummary {
       opt[File]('l', "similarity-list") required() action { (x, c) =>
         c.copy(simFiles = x)
       } text ("List of alpaca similarity file paths.")
-      opt[String]("prefix") required() action { (x, c) =>
-        c.copy(prefix = x)
-      } text ("Prefix for output file and sample ID.")
       opt[File]('o', "output-directory") required() action { (x, c) =>
         c.copy(outputDir = x)
       } text ("Output directory")
+      opt[String]("prefix") required() action { (x, c) =>
+        c.copy(prefix = x)
+      } text ("Prefix for output file and sample ID.")
       note("\nOPTIONAL\n")
       opt[Double]("max-top-proportion") action { (x,c) =>
         c.copy(maxTopProportion = x)
@@ -96,11 +96,15 @@ object PopulationSummary {
       else subregion.tksize >= (((subregion.end - subregion.start) + 1) * 0.1).toInt
     }
 
+    /**
+      * Function to determine whether given number of top samples in a sub-region is within the specified max proportion
+      * @return Boolean
+      */
     def isWithinMaxProportion: Int => Boolean = total_samples =>
       total_samples <= round(population.size * config.maxTopProportion)
 
     //create output file
-    val pw = new PrintWriter(config.outputDir + "/summarized_population.txt")
+    val pw = new PrintWriter(config.outputDir + "/" + config.prefix + ".txt")
     pw.println("Chrm\tStart\tEnd\tTotalSamples\tJaccardIndex\tSamples")
     println(timeStamp + "Summarizing population")
     //partial function for getting top scorers
@@ -123,6 +127,7 @@ object PopulationSummary {
     }).mapValues(all_sample_entries => partialTopScorer(all_sample_entries.sortBy(-_._2), Seq(), Seq()).flatten)
       //iterate through each subregion and print
       .foreach(subregion => {
+      //compute jaccard index
       val jaccard_index = if(subregion._2.isEmpty || !isWithinMaxProportion(subregion._2.size)) 0.0 else subregion._2.head._2
       //output to file
         pw.println(Seq(subregion._1._1, subregion._1._2, subregion._1._3, subregion._2.size, jaccard_index,
@@ -132,13 +137,30 @@ object PopulationSummary {
     println(timeStamp + "Successfully completed!")
   }
 
+  /**
+    * Case class for representing an entry of the similarity of a sub-region
+    * @param chrm
+    * @param start
+    * @param end
+    * @param sample
+    * @param tksize
+    * @param jaccard_index
+    */
   case class SubregionLine(chrm: String, start: Int, end: Int, sample: String, tksize: Int, jaccard_index: Double)
 
+  /**
+    * Function to convert some (string) line into a SubregionLine object
+    * @return
+    */
   def toSubregionLine: String => SubregionLine = line => {
     val tmp = line.split("\t")
     new SubregionLine(tmp.head, tmp(1).toInt, tmp(2).toInt, tmp(4), tmp(5).toInt, tmp(6).toDouble)
   }
 
+  /**
+    * Function to round double to 2-decimal points
+    * @return Double
+    */
   def round: Double => Double = value => {
     if (value.isNaN) Double.NaN else BigDecimal(value).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
   }
