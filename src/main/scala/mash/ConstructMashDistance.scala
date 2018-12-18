@@ -122,7 +122,7 @@ object ConstructMashDistance {
       pw.println
     })
     pw.close()
-    println("Successsfully completed!")
+    println(timeStamp + "Successsfully completed!")
   }
 
 }

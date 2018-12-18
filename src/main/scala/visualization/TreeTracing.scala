@@ -30,7 +30,6 @@ object TreeTracing {
                      outputDir: File = null,
                      canvasHeight: Int = 1000,
                      canvasWidth: Int = 1000,
-                     outputPrefix: String = "tree_tracing",
                      branchWidth: Int = 10,
                      fontSize: Int = 25,
                      labels: File = null,
@@ -41,6 +40,7 @@ object TreeTracing {
                      hue: Double = 0,
                      saturation: Double = 0,
                      mappings: File = null,
+                     prefix: String = null,
                      featureFraction: Double = 0.75,
                      lineWidth: Int = -1,
                      features: File = null)
@@ -53,39 +53,27 @@ object TreeTracing {
       opt[File]('o', "output-directory") required() action { (x, c) =>
         c.copy(outputDir = x)
       } text ("Output directory. If it doesn't not exist, the directory will be created.")
-      note("\nOPTIONAL METADATA\n")
-      opt[String]("prefix") action { (x, c) =>
-        c.copy(outputPrefix = x)
-      } text ("Prefix for output file name.")
-      opt[File]("features") action { (x, c) =>
-        c.copy(features = x)
-      } text ("Tab-delimited file containing features, on per line: sample ID,value 1,value 2,...,value n")
-      opt[Double]("feature-size") action { (x, c) =>
-        c.copy(featureFraction = x)
-      } text ("Fraction of total image-width dedicated to drawing features (default is 0.75).")
-      opt[File]("mappings") action { (x, c) =>
-        c.copy(mappings = x)
-      } text ("Tab-delimited file containing: sample ID, sample display name")
-      opt[File]("proportions") action { (x, c) =>
+      opt[File]("proportions") required() action { (x, c) =>
         c.copy(proportions = x)
       } text ("Tab-delimited file containing: sample ID, absolute counts. Used to draw thickness of branches to " +
         "emphasize frequency of paths. Uses aesthetic parameter '--branch-width'. Assumes a header line.")
-      opt[Double]("min-proportion") action { (x, c) =>
-        c.copy(minProportionsValue = x)
-      } text ("Display the proportion at every node only when its at least this value (default is 0.05).")
-      note("\n\nOPTIONAL AESTHETICS\n")
-      opt[Int]("proportion-offset") action { (x, c) =>
-        c.copy(proportionValueOffset = x)
-      } text ("Display proportion offset from node by this value (default is 15).")
-      opt[Double]("hue") action { (x, c) =>
-        c.copy(hue = x)
-      } text ("HSL hue value for features.")
-      opt[Double]("saturation") action { (x, c) =>
-        c.copy(saturation = x)
-      } text ("HSL saturation value for features.")
+      opt[String]("prefix") required() action { (x, c) =>
+        c.copy(prefix = x)
+      } text ("Prefix for output file name.")
+      note("\nOPTIONAL METADATA\n")
       opt[File]("labels") action { (x, c) =>
         c.copy(labels = x)
       } text ("Tab-delimited file containing labels per sample, on per line: sample,label,hue,saturation,lightness")
+      opt[File]("mappings") action { (x, c) =>
+        c.copy(mappings = x)
+      } text ("Tab-delimited file containing: sample ID, sample display name")
+      note("\n\nOPTIONAL AESTHETICS\n")
+      opt[Double]("min-proportion") action { (x, c) =>
+        c.copy(minProportionsValue = x)
+      } text ("Display the proportion at every node only when its at least this value (default is 0.05).")
+      opt[Int]("proportion-offset") action { (x, c) =>
+        c.copy(proportionValueOffset = x)
+      } text ("Display proportion offset from node by this value (default is 15).")
       opt[Int]("image-height") action { (x, c) =>
         c.copy(canvasHeight = x)
       } text ("Height of final image (default 1000 units).")
@@ -126,7 +114,7 @@ object TreeTracing {
     case class Label(name: String, hsl: HSL)
 
 
-    println("Opening Newick-formatted tree." + timeStamp)
+    println(timeStamp + "Opening Newick-formatted tree")
     //Open and parse newick formatted tree
     val fileReader = new BufferedReader(new InputStreamReader(new FileInputStream(config.tree), "UTF-8"))
     //load tree
@@ -139,7 +127,7 @@ object TreeTracing {
     val features = {
       if(config.features == null) Map[String,Seq[Double]]()
       else {
-        println("User specified features file." + timeStamp)
+        println(timeStamp + "User specified features file")
         val tmp = openFileWithIterator(config.features).toList.map(_.split("\t")).map(x => (x(0), x.tail.map(_.toDouble).toSeq)).toMap
         val max = tmp.map(_._2.max).toList.max
         val min = tmp.map(_._2.min).toList.min
@@ -151,7 +139,7 @@ object TreeTracing {
     val size_sanity = features.filter(_._2.size != total_features)
     //sanity check
     if(config.features != null && !size_sanity.isEmpty) {
-      println("Warning: not all samples have the same number of features: " +
+      println(timeStamp + "Warning: not all samples have the same number of features: " +
         size_sanity.map(x => "--" + x._1 + "\t" + x._2.mkString("\t")).foreach(println)
       )
     }
@@ -164,9 +152,9 @@ object TreeTracing {
     val labels = {
       if(config.labels == null) Map[String, Label]()
       else {
-        openFileWithIterator(config.labels).toList.map(_.split("\t")).map(x => {
-          val hsl = new HSL(x(2).toDouble.degrees, x(3).toDouble.normalized, x(4).toDouble.normalized)
-          (x.head, new Label(x(1), hsl))
+        openFileWithIterator(config.labels).drop(1).toList.map(_.split("\t")).map(x => {
+          val hsl = new HSL(x(1).toDouble.degrees, x(2).toDouble.normalized, x(3).toDouble.normalized)
+          (x.head, new Label(x(4), hsl))
         }).toMap
       }
     }
@@ -174,25 +162,25 @@ object TreeTracing {
     val mappings = {
       if(config.mappings == null) Map[String,String]()
       else {
-        println("User specified mapping file (sample ID to display name)." + timeStamp)
+        println(timeStamp + "User specified mapping file (sample ID to display name)")
         openFileWithIterator(config.mappings).toList.map(_.split("\t")).map(x => (x(0),x(1))).toMap
       }
     }
     //sanity check
     if(config.mappings != null && total_leafs-2 != mappings.size)
-      println("Warning: total number of samples in tree does not match total number of samples in mapping file." +
-        timeStamp)
+      println(timeStamp + "Warning: total number of samples in tree does not match total number of samples in mapping" +
+        " file")
     //open proportions file if provided
     val proportions = {
       if(config.proportions == null) Map[String, Double]()
       else {
-        println("Proportions file provided" + timeStamp)
+        println(timeStamp + "Proportions file provided")
         val tmp = openFileWithIterator(config.proportions).toList
         tmp.drop(2).map(_.split("\t")).map(x => x(0) -> x(1).toDouble).toMap
       }
     }
     val proportions_sum = if(proportions.isEmpty) -1.0 else proportions.toList.map(_._2).sum
-    if(config.proportions != null) println("--Total proportions count: " + proportions_sum)
+    if(config.proportions != null) println(timeStamp + "--Total proportions count: " + proportions_sum)
     val true_width = (config.canvasWidth * config.featureFraction) //+ (config.maxChar*config.fontSize)/2
 
     //Y spacing of leafs
@@ -242,8 +230,8 @@ object TreeTracing {
       * Obtain map of hierchical order of nodes and set of all nodes (leaf+parents) in the tree
       */
     val (map_node2slot, total_levels, max_dist) = getSlotsAndNodesPostOrder(root.leftmostLeaf, Map(), List(), 1, 1)
-    println("Found " + map_node2slot.size + " nodes with " + total_levels + " total levels and maxmium distance of " +
-      max_dist + timeStamp)
+    println(timeStamp + "Found " + map_node2slot.size + " nodes with " + total_levels + " total levels and maxmium " +
+      "distance of " + max_dist)
 
     /**
       * Function to normalize weight
@@ -291,7 +279,7 @@ object TreeTracing {
       val values = features.get(node)
       //sanity check
       if(values == None) {
-        println("Warning: could not draw features for " + node + timeStamp)
+        println(timeStamp + "Warning: could not draw features for " + node)
         Empty
       } else {
         //draw all features next to leaf
@@ -429,14 +417,14 @@ object TreeTracing {
       }
     }
     //create output file
-    val output_file = new File(config.outputDir + "/" + config.outputPrefix + ".martini")
-    println("Drawing:" + timeStamp)
+    val output_file = new File(config.outputDir + "/" + config.prefix + ".svg")
+    println(timeStamp + "Drawing:")
     //draw phylogenetic tree
     val phylo_tree = drawSubTree(List(root), Image.Empty)
-    //if no labels were provided, save as pdf
+    //if no labels were provided
     if(labels.isEmpty) phylo_tree.save(output_file.getAbsolutePath)
     else {
-      println("--Adding legend" + timeStamp)
+      println(timeStamp + "--Adding legend")
       //get all label groups
       val labels_groups = labels.map(_._2).toList.groupBy(_.name).mapValues(_.head).toList
       //draw legend
@@ -445,11 +433,11 @@ object TreeTracing {
           .fillColor(Color.hsl(group._2.hsl.hue, group._2.hsl.saturation, group._2.hsl.lightness))
           .above(rectangle(5,5).noLine.noFill)
       })
-      println("Saving." + timeStamp)
+      println(timeStamp + "Writing to disk")
       //add legend to phylogenetic tree
-      allAbove(legend).above(phylo_tree).save(output_file.getAbsolutePath + ".svg")
+      allAbove(legend).above(phylo_tree).save(output_file.getAbsolutePath)
     }
-    println("Successfully completed!" + timeStamp)
+    println(timeStamp + "Successfully completed!")
 
   }
 

@@ -33,7 +33,6 @@ object AlpacaLayout {
                      canvasWidth: Int = 1000,
                      chrmSpacing: Int = 20,
                      outputPrefix: String = "alpaca",
-                     chrmColor: String = null,
                      multipleGenomes: Boolean = false,
                      cFontSize: Int = 40,
                      sFontSize: Int = 20,
@@ -44,7 +43,7 @@ object AlpacaLayout {
     val parser = new scopt.OptionParser[Config]("alpaca-layout") {
       opt[File]('s', "summarized-population") required() action { (x, c) =>
         c.copy(summarizedPop = x)
-      } text ("Summarized population file from alpaca similarity comparison for a single genome. If comparing " +
+      } text ("Summarized population file from alpaca similarity comparison. If comparing " +
         "multiple genomes, pass tab-delimited file containing sample ID and corresponding summarized population file " +
         "and turn on '--multiple-genomes' parameter.")
       opt[File]('l', "labels") required() action { (x, c) =>
@@ -53,7 +52,10 @@ object AlpacaLayout {
       opt[File]('o', "output-directory") required() action { (x, c) =>
         c.copy(outputDir = x)
       } text ("Output directory. If it doesn't not exist, the directory will be created.")
-      note("\nOPTIONAL\n")
+      opt[String]("prefix") required() action { (x, c) =>
+        c.copy(outputPrefix = x)
+      } text ("Prefix for output file name.")
+      note("\nOPTIONAL ALPACA\n")
       opt[Unit]("multiple-genomes") action { (x, c) =>
         c.copy(multipleGenomes = true)
       } text ("Visualizing multiple genomes. See '--summarized-population' parameter.")
@@ -64,12 +66,10 @@ object AlpacaLayout {
       opt[File]("sample-ordering") action { (x, c) =>
         c.copy(sampleOrdering = x)
       } text ("File containing sample name, one per line, for ordering purposes.")
+      note("\nOPTIONAL AESTHETICS\n")
       opt[Int]("max-size") action { (x, c) =>
         c.copy(maxChrmSize = x)
       } text ("Use a pre-defined maximum chromosome size. Will be use for scaling purposes.")
-      opt[String]("prefix") action { (x, c) =>
-        c.copy(outputPrefix = x)
-      } text ("Prefix for output file name.")
       opt[Int]("image-height") action { (x, c) =>
         c.copy(canvasHeight = x)
       } text ("Height of final image (default 1000 units).")
@@ -88,9 +88,6 @@ object AlpacaLayout {
       opt[Int]("sfont-size") action { (x, c) =>
         c.copy(sFontSize = x)
       } text ("Font size for displaying sample name (default is 20). Only used when visualizing multiple samples.")
-      opt[String]("hsl-color-code") action { (x, c) =>
-        c.copy(chrmColor = x)
-      } text ("HSL color code for drawing.")
     }
     parser.parse(args, Config()).map { config =>
       //check whether output directory exists. If not, create it.
@@ -134,12 +131,15 @@ object AlpacaLayout {
     val labels = openFileWithIterator(config.labels).drop(1).foldLeft(Map[String, Color]())((lmap, line) => {
       val tmp = line.split("\t")
       assume(lmap.get(tmp(0)) == None, line)
-      lmap + (tmp(0) -> (Color.hsl(tmp(3).toInt.degrees, tmp(4).toDouble.normalized, tmp(5).toDouble.normalized)))
+      lmap + (tmp(0) -> (Color.hsl(tmp(1).toInt.degrees, tmp(2).toDouble.normalized, tmp(3).toDouble.normalized)))
     })
     println(timeStamp + "Found " + labels.size + " labelled samples")
     //get alternate chromosome name mappings if provided
     val chrm_mappings = {
-      if (config.chrmMappings == null) Map[String, (String, Int)]()
+      if (config.chrmMappings == null) {
+        openFileWithIterator(config.summarizedPop).drop(1).foldLeft(Set[String]())((b,a) => b + (a.split("\t").head))
+          .toList.zipWithIndex.map(x => (x._1, (x._1, x._2))).toMap
+      }
       else openFileWithIterator(config.chrmMappings).foldLeft((Map[String, (String, Int)](), 0))((mmap, line) => {
         val tmp = line.split("\t")
         (mmap._1 + (tmp.head -> (tmp(1), mmap._2)), mmap._2 + 1)

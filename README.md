@@ -140,4 +140,80 @@ You can also obtain metrics about the population summary via:
 
 ## How to visualize
 
-Alpaca comes with custom made visualizations.
+Alpaca comes with two custom made visualizations: (1) Alpaca layout and
+(2) Tree tracing.
+
+### Alpaca layout
+
+The alpaca layout figure draws each contig/scaffold/chromosome as a sequence
+of rectangles each representing a bin. Each bin is then colored by the
+(proportioned) contribution of a label (e.g. lineage, clade) based on
+ the top samples in that bin.
+
+ You can generate this figure via:
+
+ ```bash
+java -jar /path/to/binary/alpaca.jar alpaca-layout
+-s summarized_population.txt -l labels.txt -o /path/to/output/directory/
+ ```
+
+ The 'summarized_population.txt' is the output when running the 'population-summary'
+ command (see section above). The 'labels.txt' file is tab-delimited file
+ with the following values: sample ID, Hue, Saturation, Lightness, label ID.
+ The last three values describe the assigned color for that sample in
+ [HSL code](http://colorizer.org/). It's recommended to assign the same HSL
+ code for samples within the same lineage/clade.
+
+### Tree tracing
+
+ The tree tracing figure traces the path(s) of the top scoring samples in
+ a binary tree:
+
+```bash
+java -jar /path/to/binary/alpaca.jar tree-tracing
+--proportions population_metrics.top_samples.txt
+--labels labels.txt
+-t tree.nwk
+-o /path/to/output/directory/ --prefix <value>
+```
+
+The 'population_metrics.top_samples.txt' is one of the outputs from the
+summary metrics command (see section above). The 'labels.txt' file is
+the same as the one provided in the alpaca layout figure. This file is
+optional but recommended as it provides a more intuitive visualization.
+
+The 'tree.nwk' format is a binary tree explaining the evolutionary relationship/clustering
+of every genome in the population in Newick format. A phylogenetic tree
+can be provided as long as it is a binary tree. We recommend using
+MASH to obtain this tree. We provide automated scripts:
+
+To create individual scripts for constructing sketches:
+
+```bash
+java -jar /path/to/binary/alpaca.jar mash-sketches -l libraries.txt
+--mash-binary /path/to/mash/binary/mash -o /path/to/output/directory/
+ --cluster-config slurm_config.txt
+```
+
+The libraries file is a tab-delimited file containing the following values
+in each line: sample ID, path to forward reads (if paired), path to reverse reads (optionally, if paired)
+
+To perform pairwise distance and format as a distance matrix:
+
+```bash
+java -jar /path/to/binary/alpaca.jar mash-distances -s all_sketches.txt
+-o /path/to/output/directory/ --prefix <value>
+```
+
+The 'all_sketches.txt' file contains the path to each mash sketch, one
+per line.
+
+
+The resulting matrix file can be converted to Newick format using R:
+```R
+require(ape)
+distances = as.dist(read.table("<value>.matrix", as.is=TRUE))
+clusters = hclust(distances)
+my_tree = as.phylo(clusters)
+write.tree(phy=my_tree, file="tree.nwk")
+````
