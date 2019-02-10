@@ -128,7 +128,7 @@ object AlpacaLayout {
     }
 
     //get sample labels and createa a map of sample id to color
-    val labels = openFileWithIterator(config.labels).drop(1).foldLeft(Map[String, Color]())((lmap, line) => {
+    val labels = openFileWithIterator(config.labels).foldLeft(Map[String, Color]())((lmap, line) => {
       val tmp = line.split("\t")
       assume(lmap.get(tmp(0)) == None, line)
       lmap + (tmp(0) -> (Color.hsl(tmp(1).toInt.degrees, tmp(2).toDouble.normalized, tmp(3).toDouble.normalized)))

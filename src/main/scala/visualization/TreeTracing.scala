@@ -152,7 +152,7 @@ object TreeTracing {
     val labels = {
       if(config.labels == null) Map[String, Label]()
       else {
-        openFileWithIterator(config.labels).drop(1).toList.map(_.split("\t")).map(x => {
+        openFileWithIterator(config.labels).toList.map(_.split("\t")).map(x => {
           val hsl = new HSL(x(1).toDouble.degrees, x(2).toDouble.normalized, x(3).toDouble.normalized)
           (x.head, new Label(x(4), hsl))
         }).toMap
